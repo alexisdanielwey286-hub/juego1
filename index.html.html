@@ -1,0 +1,643 @@
+import React, { useState, useMemo, useCallback } from 'react';
+import {
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+  BarChart, Bar, PieChart, Pie, Cell, ResponsiveContainer
+} from 'recharts';
+import {
+  Wallet, TrendingUp, Zap, Target, Sliders, DollarSign, ArrowDown, ArrowUp, CheckCircle
+} from 'lucide-react';
+
+// --- Configuración y Datos Ficticios ---
+
+// Colores para los gráficos (Tailwind equivalents)
+const COLORS = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#8b5cf6', '#d946ef'];
+
+// Datos iniciales de transacciones
+const initialTransactions = [
+  { id: 1, date: '2024-09-01', type: 'expense', amount: 500, category: 'Alquiler', description: 'Pago mensual' },
+  { id: 2, date: '2024-09-05', type: 'income', amount: 3500, category: 'Salario', description: 'Nómina de septiembre' },
+  { id: 3, date: '2024-09-08', type: 'expense', amount: 120, category: 'Comida', description: 'Supermercado' },
+  { id: 4, date: '2024-09-15', type: 'expense', amount: 50, category: 'Transporte', description: 'Gasolina' },
+  { id: 5, date: '2024-09-20', type: 'expense', amount: 80, category: 'Entretenimiento', description: 'Cena' },
+  { id: 6, date: '2024-10-01', type: 'expense', amount: 500, category: 'Alquiler', description: 'Pago mensual' },
+  { id: 7, date: '2024-10-05', type: 'income', amount: 3500, category: 'Salario', description: 'Nómina de octubre' },
+  { id: 8, date: '2024-10-10', type: 'expense', amount: 150, category: 'Comida', description: 'Supermercado grande' },
+  { id: 9, date: '2024-10-25', type: 'expense', amount: 60, category: 'Transporte', description: 'Mantenimiento' },
+];
+
+// Datos de patrimonio histórico (para Gráfico de líneas)
+const netWorthHistory = [
+  { month: 'Jun', netWorth: 25000 },
+  { month: 'Jul', netWorth: 26500 },
+  { month: 'Ago', netWorth: 28000 },
+  { month: 'Sep', netWorth: 29500 },
+  { month: 'Oct', netWorth: 32000 },
+  { month: 'Nov', netWorth: 34500 },
+];
+
+// Asignación de activos por perfil de riesgo
+const assetAllocation = {
+  Conservador: [
+    { name: 'Bonos Gubernamentales', allocation: 60, color: COLORS[4] },
+    { name: 'Fondos Monetarios', allocation: 30, color: COLORS[3] },
+    { name: 'Acciones (Baja Volatilidad)', allocation: 10, color: COLORS[2] },
+  ],
+  Moderado: [
+    { name: 'Bonos', allocation: 30, color: COLORS[4] },
+    { name: 'Acciones (Globales)', allocation: 50, color: COLORS[2] },
+    { name: 'Bienes Raíces (REITs)', allocation: 15, color: COLORS[6] },
+    { name: 'Efectivo', allocation: 5, color: COLORS[5] },
+  ],
+  Agresivo: [
+    { name: 'Acciones (Crecimiento)', allocation: 80, color: COLORS[2] },
+    { name: 'Alternativas (Venture/Crypto)', allocation: 15, color: COLORS[1] },
+    { name: 'Bonos', allocation: 5, color: COLORS[4] },
+  ],
+};
+
+// Parámetros de proyección
+const projectionParams = {
+  Conservador: { annualReturn: 0.05, stdDev: 0.03 },
+  Moderado: { annualReturn: 0.08, stdDev: 0.07 },
+  Agresivo: { annualReturn: 0.12, stdDev: 0.15 },
+};
+
+// --- Componente de Tarjeta de Métrica ---
+const MetricCard = ({ title, value, unit = 'COP', icon: Icon, colorClass, subtitle }) => (
+  <div className={`p-5 bg-white rounded-xl shadow-lg border-l-4 ${colorClass} transition duration-300 hover:shadow-xl`}>
+    <div className="flex items-center justify-between">
+      <div className="text-sm font-semibold text-gray-500 uppercase">{title}</div>
+      <Icon className={`w-6 h-6 ${colorClass.replace('border-', 'text-')}`} />
+    </div>
+    <div className="mt-1">
+      <p className="text-3xl font-bold text-gray-900">{value} {unit}</p>
+      {subtitle && <p className="text-xs text-gray-500 mt-1">{subtitle}</p>}
+    </div>
+  </div>
+);
+
+// --- Funciones de Cálculo ---
+
+const calculateMetrics = (transactions, netWorth) => {
+  const latestMonth = transactions.reduce((max, t) => {
+    const month = t.date.substring(0, 7);
+    return month > max ? month : max;
+  }, '2000-01');
+
+  const filteredTransactions = transactions.filter(t => t.date.startsWith(latestMonth));
+
+  const totalIncome = filteredTransactions
+    .filter(t => t.type === 'income')
+    .reduce((sum, t) => sum + t.amount, 0);
+
+  const totalExpense = filteredTransactions
+    .filter(t => t.type === 'expense')
+    .reduce((sum, t) => sum + t.amount, 0);
+
+  // Datos Ficticios (Necesitaríamos datos reales de deuda y gastos mensuales promedio)
+  const monthlyDebtPayment = 300;
+  const totalDebt = 5000;
+  const monthlyExpensesAvg = totalExpense || 800; // Usar el gasto del mes actual como proxy
+
+  const savingRate = totalIncome > 0 ? (1 - (totalExpense / totalIncome)) * 100 : 0;
+  const debtToIncomeRatio = totalIncome > 0 ? (monthlyDebtPayment / totalIncome) * 100 : 0;
+  const emergencyFundCoverage = netWorth / monthlyExpensesAvg;
+  const burnRate = totalExpense;
+
+  return {
+    totalIncome,
+    totalExpense,
+    savingRate,
+    debtToIncomeRatio,
+    emergencyFundCoverage,
+    burnRate,
+    netWorth,
+  };
+};
+
+const formatCurrency = (value) => {
+  return new Intl.NumberFormat('es-CO', {
+    style: 'currency',
+    currency: 'COP',
+    minimumFractionDigits: 0
+  }).format(value);
+};
+
+const projectGrowth = (principal, annualReturn, years) => {
+  let data = [];
+  let currentBalance = principal;
+  for (let i = 0; i <= years; i++) {
+    const yearEndBalance = currentBalance * Math.pow(1 + annualReturn, 1);
+    data.push({ year: i, balance: Math.round(yearEndBalance) });
+    currentBalance = yearEndBalance;
+  }
+  return data;
+};
+
+// --- Vistas de Módulos ---
+
+const TrackingModule = ({ transactions, setTransactions }) => {
+  const [newTransaction, setNewTransaction] = useState({ date: '', type: 'expense', amount: '', category: '', description: '' });
+
+  const metrics = useMemo(() => calculateMetrics(transactions, netWorthHistory[netWorthHistory.length - 1].netWorth), [transactions]);
+
+  // Prepara datos para gráficos
+  const expenseData = useMemo(() => {
+    const expenses = transactions.filter(t => t.type === 'expense');
+    const grouped = expenses.reduce((acc, t) => {
+      acc[t.category] = (acc[t.category] || 0) + t.amount;
+      return acc;
+    }, {});
+    return Object.keys(grouped).map(key => ({
+      name: key,
+      value: grouped[key],
+    }));
+  }, [transactions]);
+
+  const incomeExpenseData = useMemo(() => {
+    const monthlyData = transactions.reduce((acc, t) => {
+      const month = t.date.substring(0, 7);
+      if (!acc[month]) {
+        acc[month] = { income: 0, expense: 0, month };
+      }
+      acc[month][t.type] += t.amount;
+      return acc;
+    }, {});
+
+    return Object.values(monthlyData).map(d => ({
+      ...d,
+      month: new Date(d.month + '-01').toLocaleDateString('es-CO', { month: 'short', year: 'numeric' }),
+    })).sort((a, b) => new Date(a.month) - new Date(b.month));
+
+  }, [transactions]);
+
+  const handleAddTransaction = (e) => {
+    e.preventDefault();
+    if (newTransaction.amount && newTransaction.category) {
+      const amount = parseFloat(newTransaction.amount);
+      const newT = {
+        ...newTransaction,
+        id: Date.now(),
+        amount: amount,
+      };
+      setTransactions([...transactions, newT]);
+      setNewTransaction({ date: '', type: 'expense', amount: '', category: '', description: '' });
+    }
+  };
+
+  return (
+    <div className="space-y-8 p-4">
+      <h2 className="text-3xl font-extrabold text-gray-900 border-b pb-2">Módulo 1: Seguimiento de Flujo de Caja</h2>
+
+      {/* Tarjetas de Resumen */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <MetricCard
+          title="Ingresos del Mes"
+          value={formatCurrency(metrics.totalIncome)}
+          icon={ArrowUp}
+          colorClass="border-green-500"
+          subtitle="Total recibido en el último período"
+        />
+        <MetricCard
+          title="Gastos del Mes"
+          value={formatCurrency(metrics.totalExpense)}
+          icon={ArrowDown}
+          colorClass="border-red-500"
+          subtitle="Total gastado en el último período"
+        />
+        <MetricCard
+          title="Patrimonio Neto"
+          value={formatCurrency(metrics.netWorth)}
+          icon={Wallet}
+          colorClass="border-blue-500"
+          subtitle="Activos - Pasivos (Simulado)"
+        />
+      </div>
+
+      {/* Visualizaciones */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-lg">
+          <h3 className="text-xl font-semibold mb-4">Ingresos vs Gastos Mensuales</h3>
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={incomeExpenseData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+              <XAxis dataKey="month" />
+              <YAxis tickFormatter={(value) => `$${value / 1000}K`} />
+              <Tooltip formatter={(value) => formatCurrency(value)} />
+              <Legend />
+              <Bar dataKey="income" name="Ingresos" fill="#22c55e" radius={[10, 10, 0, 0]} />
+              <Bar dataKey="expense" name="Gastos" fill="#ef4444" radius={[10, 10, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+
+        <div className="bg-white p-6 rounded-xl shadow-lg">
+          <h3 className="text-xl font-semibold mb-4">Distribución de Gastos (Último Mes)</h3>
+          <ResponsiveContainer width="100%" height={300}>
+            <PieChart>
+              <Pie
+                data={expenseData}
+                dataKey="value"
+                nameKey="name"
+                cx="50%"
+                cy="50%"
+                outerRadius={100}
+                fill="#8884d8"
+                labelLine={false}
+                label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+              >
+                {expenseData.map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                ))}
+              </Pie>
+              <Tooltip formatter={(value) => formatCurrency(value)} />
+              <Legend layout="vertical" align="right" verticalAlign="middle" />
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* Formulario y Tabla de Transacciones */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-1 bg-white p-6 rounded-xl shadow-lg h-fit">
+          <h3 className="text-xl font-semibold mb-4">Nueva Transacción</h3>
+          <form onSubmit={handleAddTransaction} className="space-y-4">
+            <input
+              type="date"
+              value={newTransaction.date}
+              onChange={(e) => setNewTransaction({ ...newTransaction, date: e.target.value })}
+              className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+              required
+            />
+            <select
+              value={newTransaction.type}
+              onChange={(e) => setNewTransaction({ ...newTransaction, type: e.target.value })}
+              className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+            >
+              <option value="expense">Gasto</option>
+              <option value="income">Ingreso</option>
+            </select>
+            <input
+              type="number"
+              placeholder="Monto (COP)"
+              value={newTransaction.amount}
+              onChange={(e) => setNewTransaction({ ...newTransaction, amount: e.target.value })}
+              className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+              required
+            />
+            <input
+              type="text"
+              placeholder="Categoría (e.g., Comida, Salario)"
+              value={newTransaction.category}
+              onChange={(e) => setNewTransaction({ ...newTransaction, category: e.target.value })}
+              className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+              required
+            />
+            <input
+              type="text"
+              placeholder="Descripción (Opcional)"
+              value={newTransaction.description}
+              onChange={(e) => setNewTransaction({ ...newTransaction, description: e.target.value })}
+              className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+            />
+            <button
+              type="submit"
+              className="w-full bg-blue-600 text-white p-2 rounded-md font-semibold hover:bg-blue-700 transition duration-150"
+            >
+              Agregar Transacción
+            </button>
+          </form>
+        </div>
+
+        <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-lg overflow-x-auto">
+          <h3 className="text-xl font-semibold mb-4">Resumen de Transacciones</h3>
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fecha</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tipo</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Monto</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Categoría</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {transactions.sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 10).map((t) => (
+                <tr key={t.id} className="hover:bg-gray-50">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{t.date}</td>
+                  <td className={`px-6 py-4 whitespace-nowrap text-sm font-medium ${t.type === 'income' ? 'text-green-600' : 'text-red-600'}`}>
+                    {t.type === 'income' ? 'Ingreso' : 'Gasto'}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-semibold">
+                    {formatCurrency(t.amount)}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{t.category}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="mt-4 text-sm text-gray-500">Mostrando las 10 transacciones más recientes.</p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const HealthModule = ({ metrics }) => {
+  const coverageStatus = metrics.emergencyFundCoverage >= 3 ? 'Excelente (≥ 3 meses)' :
+                         metrics.emergencyFundCoverage >= 1.5 ? 'Buena (1.5 - 3 meses)' :
+                         'Baja (< 1.5 meses)';
+
+  const debtStatus = metrics.debtToIncomeRatio <= 15 ? 'Bajo' :
+                     metrics.debtToIncomeRatio <= 30 ? 'Moderado' :
+                     'Alto';
+
+  return (
+    <div className="space-y-8 p-4">
+      <h2 className="text-3xl font-extrabold text-gray-900 border-b pb-2">Módulo 2: Análisis de Salud Financiera</h2>
+
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <MetricCard
+          title="Ratio de Ahorro"
+          value={`${metrics.savingRate.toFixed(1)}%`}
+          unit=""
+          icon={CheckCircle}
+          colorClass={`border-${metrics.savingRate >= 15 ? 'green' : metrics.savingRate >= 5 ? 'yellow' : 'red'}-500`}
+          subtitle="Objetivo: 15% o más"
+        />
+        <MetricCard
+          title="Relación Deuda-Ingreso"
+          value={`${metrics.debtToIncomeRatio.toFixed(1)}%`}
+          unit=""
+          icon={Sliders}
+          colorClass={`border-${metrics.debtToIncomeRatio <= 15 ? 'green' : metrics.debtToIncomeRatio <= 30 ? 'yellow' : 'red'}-500`}
+          subtitle={`Estado de Deuda: ${debtStatus}`}
+        />
+        <MetricCard
+          title="Fondo de Emergencia"
+          value={`${metrics.emergencyFundCoverage.toFixed(1)}`}
+          unit="meses"
+          icon={Zap}
+          colorClass={`border-${metrics.emergencyFundCoverage >= 3 ? 'green' : metrics.emergencyFundCoverage >= 1.5 ? 'yellow' : 'red'}-500`}
+          subtitle={`Cobertura: ${coverageStatus}`}
+        />
+        <MetricCard
+          title="Tasa de Gastos (Burn Rate)"
+          value={formatCurrency(metrics.burnRate)}
+          icon={Target}
+          colorClass="border-red-500"
+          subtitle="Gasto mensual actual"
+        />
+      </div>
+
+      {/* Gráfico de Evolución de Patrimonio */}
+      <div className="bg-white p-6 rounded-xl shadow-lg">
+        <h3 className="text-xl font-semibold mb-4">Evolución del Patrimonio Neto</h3>
+        <ResponsiveContainer width="100%" height={350}>
+          <LineChart data={netWorthHistory}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+            <XAxis dataKey="month" />
+            <YAxis tickFormatter={(value) => `$${value / 1000}K`} />
+            <Tooltip formatter={(value) => formatCurrency(value)} />
+            <Legend />
+            <Line type="monotone" dataKey="netWorth" name="Patrimonio Neto" stroke="#3b82f6" strokeWidth={3} dot={{ r: 6 }} activeDot={{ r: 8 }} />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Recomendaciones */}
+      <div className="bg-gray-50 p-6 rounded-xl shadow-inner border-t-4 border-blue-500">
+        <h3 className="text-xl font-semibold text-blue-800 mb-4">Recomendaciones para Mejorar tu Salud Financiera</h3>
+        <ul className="list-disc list-inside space-y-2 text-gray-700">
+          <li>**Ratio de Ahorro ({metrics.savingRate.toFixed(1)}%):** Intenta automatizar una transferencia mensual a una cuenta de ahorros para alcanzar el objetivo del 15%.</li>
+          <li>**Fondo de Emergencia ({metrics.emergencyFundCoverage.toFixed(1)} meses):** Tu fondo cubre {metrics.emergencyFundCoverage.toFixed(1)} meses de gastos. Sigue contribuyendo hasta alcanzar los 6 meses de cobertura.</li>
+          <li>**Gestión de Deuda:** El porcentaje de ingresos destinado a deuda es del {metrics.debtToIncomeRatio.toFixed(1)}%. Considera la estrategia de "bola de nieve" o "avalancha" para reducir tus deudas más rápido.</li>
+        </ul>
+      </div>
+    </div>
+  );
+};
+
+const PortfolioModule = () => {
+  const [riskProfile, setRiskProfile] = useState('Moderado');
+  const [initialInvestment, setInitialInvestment] = useState(10000);
+  const [years, setYears] = useState(10);
+
+  const selectedAllocation = assetAllocation[riskProfile];
+  const params = projectionParams[riskProfile];
+
+  // Cálculo de Proyección
+  const projectionData = useMemo(() => {
+    return projectGrowth(initialInvestment, params.annualReturn, years);
+  }, [initialInvestment, params.annualReturn, years]);
+
+  // Prepara datos de asignación para Pie Chart
+  const pieData = selectedAllocation.map(item => ({
+    name: item.name,
+    value: item.allocation,
+    color: item.color
+  }));
+
+  const finalProjection = projectionData[projectionData.length - 1].balance;
+
+  return (
+    <div className="space-y-8 p-4">
+      <h2 className="text-3xl font-extrabold text-gray-900 border-b pb-2">Módulo 3: Constructor de Portafolio e Inversiones</h2>
+
+      {/* Selector de Perfil de Riesgo */}
+      <div className="bg-white p-6 rounded-xl shadow-lg">
+        <h3 className="text-xl font-semibold mb-4">Selección de Perfil de Riesgo</h3>
+        <div className="flex flex-wrap gap-4 justify-center">
+          {Object.keys(assetAllocation).map((profile) => (
+            <button
+              key={profile}
+              onClick={() => setRiskProfile(profile)}
+              className={`p-4 rounded-lg text-lg font-bold transition duration-200 shadow-md w-full sm:w-auto flex-1 text-center
+                ${riskProfile === profile ? 'bg-blue-600 text-white shadow-blue-400/50 scale-105' : 'bg-gray-100 text-gray-800 hover:bg-blue-50'}`
+              }
+            >
+              {profile}
+            </button>
+          ))}
+        </div>
+        <p className="mt-4 text-gray-600 text-sm">
+          **Perfil Actual Seleccionado:** **{riskProfile}** (Retorno Anual Estimado: {(params.annualReturn * 100).toFixed(1)}%)
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Gráfico de Composición del Portafolio */}
+        <div className="bg-white p-6 rounded-xl shadow-lg">
+          <h3 className="text-xl font-semibold mb-4">Asignación de Activos - {riskProfile}</h3>
+          <ResponsiveContainer width="100%" height={300}>
+            <PieChart>
+              <Pie
+                data={pieData}
+                dataKey="value"
+                nameKey="name"
+                cx="50%"
+                cy="50%"
+                outerRadius={100}
+                labelLine={false}
+                label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+              >
+                {pieData.map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={entry.color} />
+                ))}
+              </Pie>
+              <Tooltip formatter={(value) => `${value}%`} />
+              <Legend layout="vertical" align="right" verticalAlign="middle" />
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Proyección de Crecimiento */}
+        <div className="bg-white p-6 rounded-xl shadow-lg">
+          <h3 className="text-xl font-semibold mb-4">Proyección de Crecimiento de Inversión</h3>
+
+          <div className="flex gap-4 mb-4">
+            <div className="flex-1">
+              <label className="block text-sm font-medium text-gray-700">Inversión Inicial (COP)</label>
+              <input
+                type="number"
+                value={initialInvestment}
+                onChange={(e) => setInitialInvestment(Math.max(0, parseInt(e.target.value) || 0))}
+                className="w-full p-2 border border-gray-300 rounded-md mt-1"
+              />
+            </div>
+            <div className="flex-1">
+              <label className="block text-sm font-medium text-gray-700">Años de Proyección</label>
+              <input
+                type="number"
+                value={years}
+                onChange={(e) => setYears(Math.max(1, parseInt(e.target.value) || 1))}
+                className="w-full p-2 border border-gray-300 rounded-md mt-1"
+              />
+            </div>
+          </div>
+
+          <p className="text-2xl font-bold text-gray-900 mb-2">
+            Valor Estimado en {years} años: <span className="text-green-600">{formatCurrency(finalProjection)}</span>
+          </p>
+          <ResponsiveContainer width="100%" height={250}>
+            <LineChart data={projectionData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+              <XAxis dataKey="year" label={{ value: 'Año', position: 'bottom' }} />
+              <YAxis tickFormatter={(value) => `$${value / 1000}K`} />
+              <Tooltip formatter={(value) => formatCurrency(value)} />
+              <Line type="monotone" dataKey="balance" name="Balance" stroke="#22c55e" strokeWidth={2} dot={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* Tabla de Asignación y Proyecciones */}
+      <div className="bg-white p-6 rounded-xl shadow-lg overflow-x-auto">
+        <h3 className="text-xl font-semibold mb-4">Detalle de Asignación y Proyección</h3>
+        <table className="min-w-full divide-y divide-gray-200 mb-6">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tipo de Activo</th>
+              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">% Asignación</th>
+              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Descripción</th>
+            </tr>
+          </thead>
+          <tbody className="bg-white divide-y divide-gray-200">
+            {selectedAllocation.map((item, index) => (
+              <tr key={item.name} className="hover:bg-gray-50">
+                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{item.name}</td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-blue-600 font-bold">{item.allocation}%</td>
+                <td className="px-6 py-4 text-sm text-gray-500 max-w-xs">{item.name === 'Bonos Gubernamentales' ? 'Instrumentos de bajo riesgo y renta fija.' : item.name === 'Acciones (Crecimiento)' ? 'Empresas con alto potencial de apreciación.' : 'Fondos que replican índices amplios.'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
+        <p className="text-sm text-gray-700">
+          **Nota Importante:** Las proyecciones de crecimiento se basan en retornos anuales históricos promedio y son solo estimaciones. El desempeño real puede variar significativamente.
+        </p>
+      </div>
+    </div>
+  );
+};
+
+// --- Componente Principal de la Aplicación (App) ---
+
+const App = () => {
+  const [activeTab, setActiveTab] = useState('tracking');
+  const [transactions, setTransactions] = useState(initialTransactions);
+
+  const metrics = useMemo(() => {
+    const latestNetWorth = netWorthHistory[netWorthHistory.length - 1].netWorth;
+    return calculateMetrics(transactions, latestNetWorth);
+  }, [transactions]);
+
+  const renderContent = useCallback(() => {
+    switch (activeTab) {
+      case 'tracking':
+        return <TrackingModule transactions={transactions} setTransactions={setTransactions} />;
+      case 'health':
+        return <HealthModule metrics={metrics} />;
+      case 'portfolio':
+        return <PortfolioModule />;
+      default:
+        return <TrackingModule transactions={transactions} setTransactions={setTransactions} />;
+    }
+  }, [activeTab, transactions, metrics]);
+
+  return (
+    <div className="min-h-screen bg-gray-50 font-sans">
+      {/* Encabezado y Navegación */}
+      <header className="bg-white shadow-md sticky top-0 z-10">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col md:flex-row justify-between items-center">
+          <h1 className="text-3xl font-bold text-blue-800 flex items-center mb-4 md:mb-0">
+            <TrendingUp className="w-8 h-8 mr-2" /> FinancePilot
+          </h1>
+          <nav className="flex space-x-2 sm:space-x-4 p-1 bg-gray-100 rounded-full shadow-inner">
+            <NavItem
+              icon={DollarSign}
+              label="Seguimiento"
+              isActive={activeTab === 'tracking'}
+              onClick={() => setActiveTab('tracking')}
+            />
+            <NavItem
+              icon={Wallet}
+              label="Salud Financiera"
+              isActive={activeTab === 'health'}
+              onClick={() => setActiveTab('health')}
+            />
+            <NavItem
+              icon={Target}
+              label="Portafolio"
+              isActive={activeTab === 'portfolio'}
+              onClick={() => setActiveTab('portfolio')}
+            />
+          </nav>
+        </div>
+      </header>
+
+      {/* Contenido Principal */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {renderContent()}
+      </main>
+
+      {/* Pie de página (simulado) */}
+      <footer className="py-4 text-center text-gray-500 text-sm border-t mt-12">
+        &copy; 2024 FinancePilot. Herramienta de Gestión Financiera Personal.
+      </footer>
+    </div>
+  );
+};
+
+const NavItem = ({ icon: Icon, label, isActive, onClick }) => (
+  <button
+    onClick={onClick}
+    className={`flex items-center space-x-2 px-4 py-2 rounded-full transition-all duration-300
+      ${isActive ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-600 hover:bg-gray-200 hover:text-blue-600'}`
+    }
+  >
+    <Icon className="w-5 h-5" />
+    <span className="font-medium text-sm hidden sm:inline">{label}</span>
+  </button>
+);
+
+export default App;
